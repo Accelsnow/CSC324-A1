@@ -39,7 +39,15 @@ Copyright: (c) University of Toronto
   not semantically valid.
 |#
 (define (run-interpreter prog)
-  (void))
+  (let ([env (make-hash '())]) (foldl (lambda (code _) (match code
+                                                         [(list 'def id expr) (reg-binding env id expr)]
+                                                         [_ (interpret env code)])) '() prog)))
+
+(define (reg-binding env id expr)
+  (if (hash-has-key? env id) (report-error 'duplicate-name id) (begin
+                                                                 (hash-set! env id (closure empty empty empty))    ;; empty closure as default value for recursive call check
+                                                                 (hash-set! env id (interpret env expr))))
+  )
 
 #|
 (interpret env expr) -> any
@@ -51,8 +59,61 @@ Copyright: (c) University of Toronto
   Returns the value of the Rake expression under the given environment.
 |#
 (define (interpret env expr)
-  (void))
+  (match expr
+    [(list 'fun args fbody) (closure args (make-closure-env env (make-hash '()) args fbody) fbody)]
+    [(list 'when cond-expr then-expr else-expr) (print "NOT YET")]
+    [(list-rest f-raw args-raw)  (let ([func (interpret env f-raw)])
+                                   (if (is-procedure func)    ;; 1 check if is function
+                                       (let ([args (map (lambda (arg) (interpret env arg)) args-raw)])    ;; 2 eager eval args
+                                         (begin
+                                           (cond [(builtin? f-raw) (apply func args)]    ;; built-ins get evalueated directly without error checking args
+                                                 [(not (equal? (length (closure-args func)) (length args))) (report-error 'arity-mismatch (length args) (length (closure-args func)))]    ;; 3 arity mismatch
+                                                 [else (interpret-func env func args)])    ;; 4 func application
+                                           )
+                                         )
+                                       (report-error 'not-a-function func)))]
+    [_ (cond
+         [(or (number? expr) (boolean? expr)) expr]
+         [(hash-has-key? env expr) (hash-ref env expr)]
+         [(builtin? expr) (hash-ref builtins expr)]
+         [else (report-error 'unbound-name expr)]
+         )]))
 
+
+(define (interpret-func env func args)
+  (let ([comp-env (hash-copy env)])
+    (begin
+      (for ([(k v) (closure-closure-env func)]) (hash-set! comp-env k v))    ;; add compile-time statically evaluated identifiers in closure to composite env
+      (for ([i (in-naturals 0)] [key (closure-args func)]) (hash-set! comp-env key (list-ref args i)))    ;; add passed-in arguments to composite env
+      (interpret comp-env (closure-body func))
+      )
+    )
+  )
+
+(define (make-closure-env env closure-env args expr)
+  (foldl (lambda (elem closure-env) (cond
+                                      [(list? elem) (make-closure-env env closure-env args elem)]    ;; recursive env
+                                      [(or (number? elem) (boolean? elem)) closure-env]
+                                      [(member? elem args) closure-env]
+                                      [(not (hash-has-key? env elem)) closure-env]    ;; identifier validity checked at runtime
+                                      [else (let ([val (hash-ref env elem)])    ;; if elem is an empty closure, which is used to represent an on-going function definition, report unbound-name error
+                                              (if (and (closure? val) (empty? (closure-args val)) (empty? (closure-closure-env val)) (empty? (closure-body val)))
+                                                  (report-error 'unbound-name elem)
+                                                  (begin (hash-set! closure-env elem val)    ;; otherwise set closure-env and return it
+                                                         closure-env)))]))                    
+         closure-env expr)
+  )
+
+
+(define (member? elem lst)
+  (match (member elem lst)
+    [(list-rest _ _) #t]
+    [_ #f]
+    )
+  )
+
+(define (is-procedure x)
+  (or (closure? x) (member? x (hash-values builtins))))
 
 ;-----------------------------------------------------------------------------------------
 ; Helpers: Builtins and closures
@@ -67,7 +128,7 @@ Copyright: (c) University of Toronto
    'boolean? boolean?
    ; Note: You'll almost certainly need to replace procedure? here to properly return #t
    ; when given your closure data structure at the end of Task 1!
-   'procedure? procedure?
+   'procedure? is-procedure
    ))
 
 ; Returns whether a given symbol refers to a builtin Rake function.
@@ -81,4 +142,4 @@ Read more at https://docs.racket-lang.org/guide/define-struct.html.
 You can and should modify this as necessary. If you're having trouble working with
 Racket structs, feel free to switch this implementation to use a list/hash instead.
 |#
-(struct closure (params body))
+(struct closure (args closure-env body))

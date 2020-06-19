@@ -33,41 +33,57 @@ functionality.
 
 
 (module+ test
-  #;(test-equal? "Numeric literal"
-                 (run-interpreter '(30))
-                 30)
+  (test-equal? "Numeric literal"
+               (run-interpreter '(30))
+               30)
 
-  #;(test-equal? "Multiple independent defines"
-                 (run-interpreter '((def a 1)
-                                    (def b #t)
-                                    (def c #f)
-                                    b))
-                 #t)
+  (test-equal? "Multiple independent defines"
+               (run-interpreter '((def a 1)
+                                  (def b #t)
+                                  (def c #f)
+                                  b))
+               #t)
 
-  #;(test-exn "Identifier with unused define (unbound-name error)"
-              (regexp (format (hash-ref error-strings 'unbound-name) 'b))
-              (thunk (run-interpreter '((def a 10)
-                                        b))))
+  (test-exn "Identifier with unused define (unbound-name error)"
+            (regexp (format (hash-ref error-strings 'unbound-name) 'b))
+            (thunk (run-interpreter '((def a 10)
+                                      b))))
 
-  #;(test-equal? "Simple +"
-                 (run-interpreter '((+ 30 40)))
-                 70)
+  (test-equal? "Simple +"
+               (run-interpreter '((+ 30 40)))
+               70)
 
-  #;(test-equal? "Unary function call"
-                 (run-interpreter '(((fun (x) (+ x 1)) 1)))
-                 2)
+  (test-equal? "Unary function call"
+               (run-interpreter '(((fun (x) (+ x 1)) 1)))
+               2)
 
-  #;(test-equal? "make-adder (like lecture)"
-                 (run-interpreter '((def make-adder
-                                      (fun (n)
-                                        (fun (m)
-                                          (+ n m))))
-                                    (def add-one (make-adder 1))
-                                    (def add-two (make-adder 2))
-                                    (+ (add-one 5) (add-two 10))))
-                 ; We write out explicitly the computation produced using
-                 ; correct substitution.
-                 (+ (+ 1 5) (+ 2 10)))
+  (test-equal? "make-adder (like lecture)"
+               (run-interpreter '((def make-adder
+                                    (fun (n)
+                                         (fun (m)
+                                              (+ n m))))
+                                  (def add-one (make-adder 1))
+                                  (def add-two (make-adder 2))
+                                  (+ (add-one 5) (add-two 10))))
+               ; We write out explicitly the computation produced using
+               ; correct substitution.
+               (+ (+ 1 5) (+ 2 10)))
+
+  (test-equal? "HOF"
+               (run-interpreter '((def a (fun (f1) (fun (k) (+ (f1 k) k))))
+                                  ((a (fun (i) (+ i -10))) 5)))
+               0)
+  
+  (test-equal? "shaowding & HOF"
+               (run-interpreter '((def a
+                                    (fun (f1 f2 k)
+                                         (fun (f1 k)
+                                              (fun (k) (f1 (f2 k) k)))))
+                                  (def f1 (fun (a b) (+ a b)))
+                                  (def f2 (fun (a) (+ a 3)))
+                                  (def f3 (fun (a b) (+ a 22 b)))
+                                  (((a f1 f2 10) f3 5) 1)))
+               27)    ;; f1 is shadowed in function call. k = 1
 
   #;(test-equal? "Contract: (integer? -> boolean?), valid call"
                  (run-interpreter '((def f (fun (x) (< x 3)))
