@@ -1,4 +1,4 @@
-#lang racket #| CSC324 Summer 2020 Assignment 1 |#
+#lang racket #| CSC324 Summer 2020 Assignment 1 |# 
 #|
 Module: rake_errors
 Description: Assignment 1: The Rake Interpreter
