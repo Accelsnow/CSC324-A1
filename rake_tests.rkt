@@ -75,9 +75,29 @@ functionality.
                                       (f 1)))))
   
   (test-equal? "Unbound identifier in function (fn not called)"
-            (run-interpreter '((def f (fun (x) (+ x y)))
-                                      42))
-            42)
+               (run-interpreter '((def f (fun (x) (+ x y)))
+                                  42))
+               42)
+
+  (test-equal? "if else simple"
+               (run-interpreter '((when (< 1 2) 1 2)))
+               1)    ;; adrian added test
+  
+  (test-equal? "if else with HOF then case"
+               (run-interpreter '((def a (fun (condf thenf elsef v) (when (condf v) thenf elsef)))
+                                  (def f1 (fun (v) (equal? v 0)))
+                                  (def f2 (fun (v) (+ v 22)))
+                                  (def f3 (fun (v) (integer? v)))
+                                  ((a f1 f2 f3 0) 1)))
+               23)    ;; adrian added test
+
+  (test-equal? "if else with HOF else case and procedure?"
+               (run-interpreter '((def a (fun (condf thenf elsef v) (when (condf v) thenf elsef)))
+                                  (def f1 (fun (v) (equal? v 0)))
+                                  (def f2 (fun (v) (+ v 22)))
+                                  (def f3 (fun (v) (procedure? v)))
+                                  ((a f1 f2 f3 1) #t)))
+               #f)    ;; adrian added test
   
   (test-equal? "HOF"
                (run-interpreter '((def a (fun (f1) (fun (k) (+ (f1 k) k))))
@@ -96,20 +116,20 @@ functionality.
                27)    ;; f1 is shadowed in function call. k = 1. adrian added test
 
   #;(test-equal? "Contract: g defined after f but before f's contract"
-               (run-interpreter '((def f (fun (x) (+ x 1)))
-                                  (def g (fun (x) (f x))) ; the env for g does not know about the contract!
-                                  (def small 10)
-                                  (def-contract f ((fun (x) (< x small)) -> integer?)) 
-                                  (g 999)))
-               1000)
+                 (run-interpreter '((def f (fun (x) (+ x 1)))
+                                    (def g (fun (x) (f x))) ; the env for g does not know about the contract!
+                                    (def small 10)
+                                    (def-contract f ((fun (x) (< x small)) -> integer?)) 
+                                    (g 999)))
+                 1000)
   
   #;(test-exn "Contract: g defined after f and after f's contract"
-            (regexp (hash-ref error-strings 'contract-violation))
-            (thunk (run-interpreter '((def f (fun (x) (+ x 1)))
-                                      (def small 10)
-                                      (def-contract f ((fun (x) (< x small)) -> integer?))
-                                      (def g (fun (x) (f x))) ; the env for g knows about the contract!
-                                      (g 999)))))
+              (regexp (hash-ref error-strings 'contract-violation))
+              (thunk (run-interpreter '((def f (fun (x) (+ x 1)))
+                                        (def small 10)
+                                        (def-contract f ((fun (x) (< x small)) -> integer?))
+                                        (def g (fun (x) (f x))) ; the env for g knows about the contract!
+                                        (g 999)))))
   
   #;(test-equal? "Contract: (integer? -> boolean?), valid call"
                  (run-interpreter '((def f (fun (x) (< x 3)))

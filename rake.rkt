@@ -61,7 +61,7 @@ Copyright: (c) University of Toronto
 (define (interpret env expr)
   (match expr
     [(list 'fun args fbody) (closure args (make-closure-env env (make-hash '()) args fbody) fbody)]
-    [(list 'when cond-expr then-expr else-expr) (print "NOT YET")]
+    [(list 'when cond-expr then-expr else-expr) (if (interpret env cond-expr) (interpret env then-expr) (interpret env else-expr))]
     [(list-rest f-raw args-raw)  (let ([func (interpret env f-raw)])
                                    (if (is-procedure func)    ;; 1 check if is function
                                        (let ([args (map (lambda (arg) (interpret env arg)) args-raw)])    ;; 2 eager eval args
