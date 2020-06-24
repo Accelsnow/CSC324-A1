@@ -124,26 +124,20 @@ if check fails return false, otherwise return true
 |#
 (define (interpret contract-env env expr)
   (match expr
-    [(list 'fun args fbody) (closure args (make-closure-env env (make-hash '()) args fbody) fbody)]
+    [(list 'fun args fbody) (if (validate-closure-env env args fbody) (closure args (hash-copy env) fbody) (void))]
     [(list 'when cond-expr then-expr else-expr) (if (interpret contract-env env cond-expr) (interpret contract-env env then-expr) (interpret contract-env env else-expr))]
     [(list-rest f-raw args-raw)  (let ([func (interpret contract-env env f-raw)])
                                    (if (is-procedure func)    ;; 1 check if is function
                                        (let ([args (map (lambda (arg) (interpret contract-env env arg)) args-raw)])    ;; 2 eager eval args
-                                         (begin
-                                           (cond [(builtin? f-raw) (apply func args)]    ;; 3 built-ins get evalueated directly without error checking args
-                                                 [(not (equal? (length (closure-args func)) (length args))) (report-error 'arity-mismatch (length args) (length (closure-args func)))]    ;; 3 arity mismatch
-                                                 ; 4 check contract pre-conditions before function application
-                                                 [(not (valid-precondition? contract-env env f-raw args)) (report-error 'contract-violation)]
-                                                 [else (let ([return-val (interpret-func contract-env env func args)]) ;; 5 func application
-                                                         ; 6 check post-condition on return value
-                                                         (if (not (valid-postcondition? contract-env env f-raw return-val))
-                                                             (report-error 'contract-violation)
-                                                             ; 7 produce return value
-                                                             return-val
-                                                             ))
-                                                       ]    
-                                                 )
-                                           ))
+                                         (cond [(and (not (hash-has-key? env f-raw)) (builtin? f-raw)) (apply func args)]    ;; 3 built-ins get evalueated without error checking. Shadowing allowed
+                                               [(not (equal? (length (closure-args func)) (length args))) (report-error 'arity-mismatch (length args) (length (closure-args func)))]    ;; 3 arity mismatch
+                                               [(not (valid-precondition? contract-env env f-raw args)) (report-error 'contract-violation)]   ;; 4 check contract pre-conditions before function application
+                                               [else (let ([return-val (interpret-func contract-env env func args)]) ;; 5 func application
+                                                       (if (not (valid-postcondition? contract-env env f-raw return-val))   ;; 6 check post-condition on return value
+                                                           (report-error 'contract-violation)
+                                                           return-val   ;; 7 produce return value
+                                                           ))]    
+                                               ))
                                        (report-error 'not-a-function func)))]
     [_ (cond
          [(or (number? expr) (boolean? expr)) expr]
@@ -154,9 +148,9 @@ if check fails return false, otherwise return true
 
 
 (define (interpret-func contract-env env func args)
-  (let ([comp-env (hash-copy env)])
+  (let ([comp-env (make-hash '())])
     (begin
-      (for ([(k v) (closure-closure-env func)])
+      (for ([(k v) (closure-env func)])
         (hash-set! comp-env k v))    ;; add compile-time statically evaluated identifiers in closure to composite env
       (for ([i (in-naturals 0)] [key (closure-args func)])
         (hash-set! comp-env key (list-ref args i)))    ;; add passed-in arguments to composite env
@@ -165,18 +159,26 @@ if check fails return false, otherwise return true
     )
   )
 
-(define (make-closure-env env closure-env args expr)
-  (foldl (lambda (elem closure-env) (cond
-                                      [(list? elem) (make-closure-env env closure-env args elem)]    ;; recursive env
-                                      [(or (number? elem) (boolean? elem)) closure-env]
-                                      [(member? elem args) closure-env]
-                                      [(not (hash-has-key? env elem)) closure-env]    ;; identifier validity checked at runtime
-                                      [else (let ([val (hash-ref env elem)])    ;; if elem is an empty closure, which is used to represent an on-going function definition, report unbound-name error
-                                              (if (and (closure? val) (empty? (closure-args val)) (empty? (closure-closure-env val)) (empty? (closure-body val)))
-                                                  (report-error 'unbound-name elem)
-                                                  (begin (hash-set! closure-env elem val)    ;; otherwise set closure-env and return it
-                                                         closure-env)))]))                    
-         closure-env expr)
+
+(define (validate-closure-env env args expr)
+  (if (list? expr)
+      (foldl (lambda (elem _) (cond
+                                [(list? elem) (validate-closure-env env args elem)]    ;; recursive env
+                                [else         (validate-closure-element env args elem)]))                    
+             #t expr)
+      (validate-closure-element env args expr))
+  )
+
+(define (validate-closure-element env args elem)
+  (cond
+    [(or (number? elem) (boolean? elem)) #t]
+    [(member? elem args) #t]
+    [(not (hash-has-key? env elem)) #t]    ;; identifier validity checked at runtime
+    [else (let ([val (hash-ref env elem)])    ;; if elem is an empty closure, which is used to represent an on-going function definition, report unbound-name error
+            (if (and (closure? val) (empty? (closure-args val)) (empty? (closure-env val)) (empty? (closure-body val)))
+                (report-error 'unbound-name elem)
+                #t))]
+    )
   )
 
 
@@ -217,4 +219,4 @@ Read more at https://docs.racket-lang.org/guide/define-struct.html.
 You can and should modify this as necessary. If you're having trouble working with
 Racket structs, feel free to switch this implementation to use a list/hash instead.
 |#
-(struct closure (args closure-env body))
+(struct closure (args env body))

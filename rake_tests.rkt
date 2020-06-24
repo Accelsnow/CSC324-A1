@@ -86,13 +86,6 @@ functionality.
                (run-interpreter '((def y 4)
                                   ((fun (x) (+ x y)) 1)))
                5) ;; Ryland added test
-
-
-  (test-equal? "lexical scoping 2 - runtime binding"
-               (run-interpreter '((def f (fun (x) (+ x y))) ; y is bound at run time
-                                  (def y 4)
-                                  (f 1)))
-               5) ;; Ryland added test
   
   (test-equal? "make-adder (like lecture)"
                (run-interpreter '((def make-adder
@@ -146,7 +139,12 @@ functionality.
             (regexp (format (hash-ref error-strings 'unbound-name) 'f))
             (thunk (run-interpreter '((def f (fun (x) (f x)))
                                       10)))) ;; Ryland added test
-
+  
+  (test-exn "Static Scope"
+            (regexp (format (hash-ref error-strings 'unbound-name) 'y))
+            (thunk (run-interpreter '((def f (fun (x) (+ x y)))
+                                      (def y 2)
+                                      ((fun (y) (f 1)) 10))))) ;; adrian added test from piazza
   
   (test-equal? "HOF"
                (run-interpreter '((def a (fun (f1) (fun (k) (+ (f1 k) k))))
