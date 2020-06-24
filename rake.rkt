@@ -39,15 +39,79 @@ Copyright: (c) University of Toronto
   not semantically valid.
 |#
 (define (run-interpreter prog)
-  (let ([env (make-hash '())]) (foldl (lambda (code _) (match code
-                                                         [(list 'def id expr) (reg-binding env id expr)]
-                                                         [_ (interpret env code)])) '() prog)))
+  (let ([env (make-hash '())]
+        [contract-env (make-hash '())])
+    (foldl(lambda (code _) (match code
+                             [(list 'def id expr) (reg-binding contract-env env id expr)] ; function definition
+                             [(list 'def-contract id expr) (contract-binding contract-env env id expr)] ; contract definition
+                             [_ (interpret contract-env env code)] ; evaluate expression
+                             ))
+          '()
+          prog))) 
 
-(define (reg-binding env id expr)
+
+(define (reg-binding contract-env env id expr)
   (if (hash-has-key? env id) (report-error 'duplicate-name id) (begin
                                                                  (hash-set! env id (closure empty empty empty))    ;; empty closure as default value for recursive call check
-                                                                 (hash-set! env id (interpret env expr))))
+                                                                 (hash-set! env id (interpret contract-env env expr))))
   )
+
+
+(define (contract-binding contract-env env id expr)
+  (cond
+    [(not (hash-has-key? env id)) (report-error 'unbound-name id)] ; throw error if function has not been defined
+    [(hash-has-key? contract-env id) (report-error 'duplicate-name id)] ; throw error if contract definition has already been defined
+    [else (hash-set! contract-env id expr)]
+    ))
+
+
+#| Check each argument against contract PRE-condition from left to right
+Returns false if any of the checks fail, otherwise return true
+|#
+(define (valid-precondition? contract-env env id args)
+
+  (if (hash-has-key? contract-env id)
+      (match (hash-ref contract-env id)
+        [(list preconds ... '-> postcond ...)
+         (foldl (lambda (precond arg result)
+                  (if (not result) #f ; return false if one of the previous precondtions failed
+                      ; check if current argument matches corresponding precondition
+                      (check-condition contract-env env precond arg)))
+                #t
+                preconds
+                args )]
+        [_ #f])
+      #t ; return true if no contract is defined
+      ))
+
+
+#| Check return value against contract POST-condition
+if check fails return false, otherwise return true
+|#
+(define (valid-postcondition? contract-env env id return-val)
+  (if (hash-has-key? contract-env id)
+      (match (hash-ref contract-env id)
+        [(list preconds ... '-> postcond)
+         ; check if return value matches postcondition
+         (check-condition contract-env env postcond return-val)]
+        [_ #f])
+      #t ; return true if no contract is defined
+      ))
+
+
+(define (check-condition contract-env env condition value)
+  ; check if value matches condition
+  (match condition
+    ; type check
+    ['boolean? (boolean? value)]
+    ['integer? (integer? value)]
+    ['procedure? (is-procedure value)]
+    ; predicate check, evaluate predicate on same environment
+    [(list 'fun args fbody) (interpret contract-env env (list condition value))]
+    ; no constraint
+    ['any #t]
+    ))
+  
 
 #|
 (interpret env expr) -> any
@@ -58,19 +122,28 @@ Copyright: (c) University of Toronto
 
   Returns the value of the Rake expression under the given environment.
 |#
-(define (interpret env expr)
+(define (interpret contract-env env expr)
   (match expr
     [(list 'fun args fbody) (closure args (make-closure-env env (make-hash '()) args fbody) fbody)]
-    [(list 'when cond-expr then-expr else-expr) (if (interpret env cond-expr) (interpret env then-expr) (interpret env else-expr))]
-    [(list-rest f-raw args-raw)  (let ([func (interpret env f-raw)])
+    [(list 'when cond-expr then-expr else-expr) (if (interpret contract-env env cond-expr) (interpret contract-env env then-expr) (interpret contract-env env else-expr))]
+    [(list-rest f-raw args-raw)  (let ([func (interpret contract-env env f-raw)])
                                    (if (is-procedure func)    ;; 1 check if is function
-                                       (let ([args (map (lambda (arg) (interpret env arg)) args-raw)])    ;; 2 eager eval args
+                                       (let ([args (map (lambda (arg) (interpret contract-env env arg)) args-raw)])    ;; 2 eager eval args
                                          (begin
-                                           (cond [(builtin? f-raw) (apply func args)]    ;; built-ins get evalueated directly without error checking args
+                                           (cond [(builtin? f-raw) (apply func args)]    ;; 3 built-ins get evalueated directly without error checking args
                                                  [(not (equal? (length (closure-args func)) (length args))) (report-error 'arity-mismatch (length args) (length (closure-args func)))]    ;; 3 arity mismatch
-                                                 [else (interpret-func env func args)])    ;; 4 func application
-                                           )
-                                         )
+                                                 ; 4 check contract pre-conditions before function application
+                                                 [(not (valid-precondition? contract-env env f-raw args)) (report-error 'contract-violation)]
+                                                 [else (let ([return-val (interpret-func contract-env env func args)]) ;; 5 func application
+                                                         ; 6 check post-condition on return value
+                                                         (if (not (valid-postcondition? contract-env env f-raw return-val))
+                                                             (report-error 'contract-violation)
+                                                             ; 7 produce return value
+                                                             return-val
+                                                             ))
+                                                       ]    
+                                                 )
+                                           ))
                                        (report-error 'not-a-function func)))]
     [_ (cond
          [(or (number? expr) (boolean? expr)) expr]
@@ -80,12 +153,14 @@ Copyright: (c) University of Toronto
          )]))
 
 
-(define (interpret-func env func args)
+(define (interpret-func contract-env env func args)
   (let ([comp-env (hash-copy env)])
     (begin
-      (for ([(k v) (closure-closure-env func)]) (hash-set! comp-env k v))    ;; add compile-time statically evaluated identifiers in closure to composite env
-      (for ([i (in-naturals 0)] [key (closure-args func)]) (hash-set! comp-env key (list-ref args i)))    ;; add passed-in arguments to composite env
-      (interpret comp-env (closure-body func))
+      (for ([(k v) (closure-closure-env func)])
+        (hash-set! comp-env k v))    ;; add compile-time statically evaluated identifiers in closure to composite env
+      (for ([i (in-naturals 0)] [key (closure-args func)])
+        (hash-set! comp-env key (list-ref args i)))    ;; add passed-in arguments to composite env
+      (interpret contract-env comp-env (closure-body func))
       )
     )
   )
