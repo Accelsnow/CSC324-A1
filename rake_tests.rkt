@@ -49,6 +49,13 @@ functionality.
             (thunk (run-interpreter '((def a 10)
                                       b))))
 
+  (test-exn "function application arity mismatch"
+            (regexp (format (hash-ref error-strings 'arity-mismatch) 2 1))
+            (thunk (run-interpreter '((def f (fun (x) (+ x 1)))   
+                                      (f 10 22)
+                                      )))) ;; Ryland added test
+
+
   (test-equal? "Simple +"
                (run-interpreter '((+ 30 40)))
                70)
@@ -151,11 +158,6 @@ functionality.
                                   ((a (fun (i) (+ i -10))) 5)))
                0)    ;; adrian added test
   
-  (test-equal? "HOF with lambda"
-               (run-interpreter '((def f (fun (x f1) (f1 x)))
-                                  (f 1 (lambda (x) (< x 2)))))
-               #t)    ;; Ryland added test
-  
 
   (test-equal? "HOF with closures, ie returns another function"
                (run-interpreter '((def f (fun (x) (fun (k) (+ x k))))
@@ -184,6 +186,13 @@ functionality.
             (thunk (run-interpreter '((def f (fun (x) (+ x 1)))
                                       (def-contract f (any -> any)) 
                                       (def-contract f (integer? any -> boolean?)) ; duplicate contract defintion
+                                      )))) ;; Ryland added test
+
+  (test-exn "contract arity mismatch"
+            (regexp (format (hash-ref error-strings 'arity-mismatch) 1 2))
+            (thunk (run-interpreter '((def f (fun (x) (+ x 1)))   
+                                      (def-contract f (integer? integer? -> integer?))
+                                      (f 10)
                                       )))) ;; Ryland added test
 
 
