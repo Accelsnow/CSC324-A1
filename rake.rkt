@@ -67,7 +67,17 @@ Copyright: (c) University of Toronto
                                                                  (hash-set! env id (interpret env expr))))
   )
 
+#|
+(contract-binding env id expr) -> void?
+  env: hash?
+    the environment to bind the identifier to
+  id: datum?
+  expr: datum?
 
+  Binds the contract identifier to its expression and register it in the given hash table.
+  If the hash table already contains a contract binding with the given identifier, duplicate-name error is raised.
+  If the corresponding function identifier for the contract is not yet defined, unbound-name error is raised.
+|#
 (define (contract-binding env id expr)
   (cond
     [(not (hash-has-key? env id)) (report-error 'unbound-name id)] ; throw error if function has not been defined
@@ -79,7 +89,14 @@ Copyright: (c) University of Toronto
     ))
 
 
-#| Check each argument against contract PRE-condition from left to right
+#| 
+(valid-precondition? env id args) -> boolean?
+  env: hash?
+    The environment with which to evaluate the expression.
+  id: datum?
+  return-val: datum?
+
+ Check each argument against contract PRE-condition from left to right
 Returns false if any of the checks fail, otherwise return true
 |#
 (define (valid-precondition? env id args)
@@ -106,8 +123,16 @@ Returns false if any of the checks fail, otherwise return true
   )
 
 
-#| Check return value against contract POST-condition
+#| 
 if check fails return false, otherwise return true
+
+(valid-postcondition? env id return-val)) -> boolean?
+  env: hash?
+    The environment with which to evaluate the expression.
+  id: datum?
+  return-val: datum?
+
+Check return value of function application against contract POST-condition
 |#
 (define (valid-postcondition? env id return-val)
   (if (hash-has-key? env id)
@@ -123,6 +148,17 @@ if check fails return false, otherwise return true
       #t)
   )
 
+#| 
+if check fails return false, otherwise return true
+
+(check-condition env condition value) -> boolean?
+  env: hash?
+    The environment with which to evaluate the expression.
+  condition: datum?
+  value: datum?
+
+Check contract condition against a value
+|#
 (define (check-condition env condition value)
   ; check if value matches condition
   (match condition
