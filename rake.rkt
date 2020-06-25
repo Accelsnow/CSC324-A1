@@ -41,7 +41,7 @@ Copyright: (c) University of Toronto
 (define (run-interpreter prog)
   (let ([env (make-hash '())])
     (foldl(lambda (code _) (match code
-                             [(list 'def id expr) (reg-binding env id expr)] ; function definition
+                             [(list 'def id expr) (id-binding env id expr)] ; function definition
                              [(list 'def-contract id expr) (contract-binding env id expr)] ; contract definition
                              [_ (interpret env code)] ; evaluate expression
                              ))
@@ -51,7 +51,17 @@ Copyright: (c) University of Toronto
   ) 
 
 
-(define (reg-binding env id expr)
+#|
+(id-binding env id expr) -> void?
+  env: hash?
+    the environment to bind the identifier to
+  id: datum?
+  expr: datum?
+
+  Binds the identifier to its expression and register it in the given hash table.
+  If the hash table already contains a binding with the given identifier, duplicate-name error is raised.
+|#
+(define (id-binding env id expr)
   (if (hash-has-key? env id) (report-error 'duplicate-name id) (begin
                                                                  (hash-set! env id (closure empty empty empty empty))    ;; empty closure as default value for recursive call check
                                                                  (hash-set! env id (interpret env expr))))
@@ -146,7 +156,7 @@ if check fails return false, otherwise return true
                                          (cond [(and (not (hash-has-key? env f-raw)) (builtin? f-raw)) (apply func args)]    ;; 3 built-ins get evalueated without error checking. Shadowing allowed
                                                [(not (equal? (length (closure-args func)) (length args))) (report-error 'arity-mismatch (length args) (length (closure-args func)))]    ;; 3 arity mismatch
                                                [(not (valid-precondition? env f-raw args)) (report-error 'contract-violation)]   ;; 4 check contract pre-conditions before function application
-                                               [else (let ([return-val (interpret-func env func args)]) ;; 5 func application
+                                               [else (let ([return-val (interpret-func func args)]) ;; 5 func application
                                                        (if (not (valid-postcondition? env f-raw return-val))   ;; 6 check post-condition on return value
                                                            (report-error 'contract-violation)
                                                            return-val   ;; 7 produce return value
@@ -158,10 +168,19 @@ if check fails return false, otherwise return true
          [(hash-has-key? env expr) (hash-ref env expr)]
          [(builtin? expr) (hash-ref builtins expr)]
          [else (report-error 'unbound-name expr)]
-         )]))
+         )])
+  )
 
 
-(define (interpret-func env func args)
+#|
+(interpret-func func args) -> any/c
+  func: closure?
+  args: list?
+
+  Build a compositive environment based on the function's static scope and pass-in arguments.
+  Then evaluate the function expression based on this environment.
+|#
+(define (interpret-func func args)
   (let ([runtime-env (foldl (lambda (index comp-env) (begin (hash-set! comp-env (list-ref (closure-args func) index) (list-ref args index))
                                                             comp-env))   ;; return comp-env for each foldl iteration
                             (hash-copy (closure-env func))   ;; foldl start with the static scope of the function
@@ -171,6 +190,18 @@ if check fails return false, otherwise return true
   )
 
 
+#|
+(validate-closure-env env args expr) -> bool
+  env: hash?
+    the envrionment to check the expression element
+  args: list?
+    the argument identifiers of the currently evaluating function
+  expr: datum?
+    the function's expression
+
+  Returns #t if the current expression is valid. Raises an error otherwise.
+  It recursively checks all identifiers within current expression and all of its subexpressions.
+|#
 (define (validate-closure-env env args expr)
   (if (list? expr)
       (foldl (lambda (elem _) (cond
@@ -180,6 +211,20 @@ if check fails return false, otherwise return true
       (validate-closure-element env args expr))
   )
 
+
+#|
+(validate-closure-element env args elem) -> bool
+  env: hash?
+    the envrionment to check the expression element
+  args: list?
+    the argument identifiers of the currently evaluating function
+  elem: any/c
+    an element of the function's expression
+
+  Returns #t if the current expression element is a valid compile-time element, raises an error otherwise.
+  If elem is a closure with all empty entries, then it is the identifier of the current function.
+  Since rake forbids recursive calls, therefore an error would be raised here at compile-time.
+|#
 (define (validate-closure-element env args elem)
   (cond
     [(or (number? elem) (boolean? elem)) #t]
@@ -192,7 +237,13 @@ if check fails return false, otherwise return true
     )
   )
 
+#|
+(member? elem lst) -> bool
+  elem: any/c
+  lst: list?
 
+  Returns #t if elem is in the list lst, returns #f otherwise
+|#
 (define (member? elem lst)
   (match (member elem lst)
     [(list-rest _ _) #t]
@@ -200,6 +251,13 @@ if check fails return false, otherwise return true
     )
   )
 
+#|
+(is-procedure x) -> bool
+  x: any/c
+    x here is not a datum. If it is a rake procedure, the procedure itself should be passed in, not the identifier.
+
+  Returns #t if x is either a closure or a builtin function, returns #f otherwise.
+|#
 (define (is-procedure x)
   (or (closure? x) (member? x (hash-values builtins))))
 
