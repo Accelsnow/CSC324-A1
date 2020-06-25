@@ -46,7 +46,9 @@ Copyright: (c) University of Toronto
                              [_ (interpret env code)] ; evaluate expression
                              ))
           '()
-          prog))) 
+          prog)
+    )
+  ) 
 
 
 (define (reg-binding env id expr)
@@ -160,15 +162,12 @@ if check fails return false, otherwise return true
 
 
 (define (interpret-func env func args)
-  (let ([comp-env (make-hash '())])
-    (begin
-      (for ([(k v) (closure-env func)])
-        (hash-set! comp-env k v))    ;; add compile-time statically evaluated identifiers in closure to composite env
-      (for ([i (in-naturals 0)] [key (closure-args func)])
-        (hash-set! comp-env key (list-ref args i)))    ;; add passed-in arguments to composite env
-      (interpret comp-env (closure-body func))
-      )
-    )
+  (let ([runtime-env (foldl (lambda (index comp-env) (begin (hash-set! comp-env (list-ref (closure-args func) index) (list-ref args index))
+                                                            comp-env))   ;; return comp-env for each foldl iteration
+                            (hash-copy (closure-env func))   ;; foldl start with the static scope of the function
+                            (build-list (length args) values))   ;; index list
+                     ])
+    (interpret runtime-env (closure-body func)))
   )
 
 
